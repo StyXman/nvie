@@ -1,0 +1,201 @@
+# /usr/bin/env bash
+
+# the source of the idea behing this is here:
+# http://www.nvie.com/posts/a-successful-git-branching-model/
+
+# NOTE: all the merges are done with --no-ff
+# this keeps the tree more explicit
+
+set -e
+
+command=$1
+shift # eat it
+
+current_branch=$(git branch | awk '/^\*/ { print $2 }')
+current_branch_begins_with=${current_branch:0:8}
+
+case $command in
+    ad|add-developer)
+        name=$1
+        path=$2
+
+        # TODO: complete
+        git remote add --tags $name $path
+        ;;
+
+    commit)
+        if [ branch == 'master' ]; then
+            echo "what are you doing, commiting on master!" >&2
+            echo "go back to a release branch or the hotfix branch and do it there!" >&2
+            exit 1
+        fi
+
+        git commit "$@"
+        ;;
+
+    clone)
+        url=$1
+        git clone $1
+        ;;
+
+    hotfix)
+        git checkout hotfix
+        # NOTE: this might be wrong
+        git merge --no-ff master -m "|/ branching out for a hotfix."
+        ;;
+
+    init)
+        git init
+        touch .gitignore
+        git add .gitignore
+        git commit .gitignore -m "! initial commit."
+
+        git branch hotfix master
+        git branch develop master
+        git checkout develop
+        ;;
+
+    mb|merge-back)
+        # merge the current release or feature branch into the main develop branch
+        if [ $current_branch == 'hotfix' ]; then
+            echo "cannot merge hotfix into develop unless you make a release!" >&2
+            exit 1
+        fi
+
+        if [ $current_branch == 'master' ]; then
+            echo "don't touch master!" >&2
+            exit 1
+        fi
+
+        if [ $current_branch == 'develop' ]; then
+            echo "you're already there!" >&2
+            exit 0
+        fi
+
+        git checkout develop
+        git merge --no-ff $current_branch -m "|\ merge from $current_branch."
+
+        # we skip removing the original branch if it's not a release
+        if [ ! $current_branch_begins_with == 'release-' ]; then
+            # it must be a feature branch, as it's not a hotfix, it's definetely not master
+            # or develop
+            # we could consider the feature implemented and merged
+            # like nvie, we could delete the branch
+            # git branch -d $current_branch
+            true
+        fi
+        ;;
+
+    fb|new-feature-branch)
+        name=$1
+
+        # feature branches have no prefix
+        if [ ${name:0:8} == 'release-' ]; then
+            echo "you cannot name a feature branch as release-foo, you fool!" >&2
+            exit 1
+        fi
+        if [ $name == 'master' -o $name == 'develop' -o $name == 'hotfix' ]; then
+            echo "'master', 'develop' and 'hotfix' are reserved branch names, go figure out another one!" >&2
+            exit 1
+        fi
+
+        # TODO: check existence
+
+        git branch $name develop
+        git checkout $name
+        ;;
+
+    rb|new-release-branch)
+        name=$1
+
+        if [ $name == 'master' -o $name == 'develop' -o $name == 'hotfix' ]; then
+            echo "'master', 'develop' and 'hotfix' are reserved branch names, go figure out another one!" >&2
+            exit 1
+        fi
+
+        # TODO: check existence
+
+        git branch release-$name develop
+        git checkout release-$name
+        ;;
+
+    prune)
+        branch=$1
+
+        if [ $branch == $current_branch ]; then
+            echo "you cannot prune a branch while standing on it! try $0 (switch|develop) first" >&2
+            exit 1
+        fi
+
+        if [ $branch == 'master' -o $branch == 'develop' -o branch='bugfix' ]; then
+            echo "you can only prune feature branches! get aoutta here!" >&2
+            exit 1
+        fi
+
+        git branch -D $branch
+        ;;
+
+    publish)
+        # TODO:
+        git push --mirror main
+        ;;
+
+    pull)
+        # pull from a developer
+        developer=$1
+
+        # TODO: does this merge one-to-one?
+        git pull $developer $current_branch
+        ;;
+
+    release)
+        tag=$1 # the name of the resulting tag
+
+        if [ $current_branch != 'hotfix' -a $current_branch_begins_with != 'release-' ]; then
+            echo "you cannot release a branch that is not a release or the hotfix!" >&2
+            exit 1
+        fi
+
+        git checkout master
+        git merge --no-ff $current_branch -m "|\ merge from $current_branch, released as $tag."
+        git tag -f $tag
+
+        git checkout develop
+        git merge --no-ff $current_branch -m "|\ merge from $current_branch."
+        ;;
+
+    st|sw|switch|switch-to)
+        branch=$1
+
+        git checkout $branch
+        ;;
+
+    update)
+        git pull origin
+        ;;
+
+    # some shortcuts
+    # these could be implemented by git aliases
+    unadd)
+        git reset --mixed "$@"
+        ;;
+
+    lm|local|locally-modified)
+        git diff
+        ;;
+
+    tc|to-commit|about-to-commit)
+        git diff --cached
+        ;;
+
+    # out|outgoing)
+
+    # TODO: incoming? implies fetch and diff
+    # alice$ git fetch /home/bob/myrepo master
+    # alice$ git log -p HEAD..FETCH_HEAD
+
+    *)
+        echo "are you trying to talk to git? well, YOU talk to it! he ALWAYS kills the messenger..." >&2
+        exit 1
+        ;;
+esac
