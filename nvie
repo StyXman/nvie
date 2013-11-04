@@ -11,8 +11,10 @@ set -e
 command=$1
 shift # eat it
 
-current_branch=$(git branch | awk '/^\*/ { print $2 }')
-current_branch_begins_with=${current_branch:0:8}
+if [ -d .git ]; then
+    current_branch=$(git branch | awk '/^\*/ { print $2 }')
+    current_branch_begins_with=${current_branch:0:8}
+fi
 
 case $command in
     ad|add-developer)
@@ -23,7 +25,7 @@ case $command in
         git remote add --tags $name $path
         ;;
 
-    commit)
+    ci|commit)
         if [ branch == 'master' ]; then
             echo "what are you doing, commiting on master!" >&2
             echo "go back to a release branch or the hotfix branch and do it there!" >&2
@@ -36,6 +38,29 @@ case $command in
     clone)
         url=$1
         git clone $1
+        ;;
+
+    dist-clean)
+        # remove everything that is not tracked by git
+        git clean -f -d -x
+        ;;
+
+    fm|fix-merge)
+        if ! [ -f .merge_message ]; then
+            echo "couldn't find a previous merge, bailing out."
+            exit 1
+        fi
+
+        # check the status for conflicted files
+        # for line in $( git status --short --untracked-files=no ); do
+        #     status=$( echo $line | awk '{ print $1 }' )
+        #     if [ "${#status}" -eq 2 ]; then
+        #         echo foo
+        #     fi
+        # done
+
+        merge_message="$( cat .merge_message )"
+        git commit -a -m "$merge_message"
         ;;
 
     hotfix)
@@ -73,7 +98,11 @@ case $command in
         fi
 
         git checkout develop
-        git merge --no-ff $current_branch -m "|\ merge from $current_branch."
+        merge_message="|\ merge from $current_branch."
+        echo "$merge_message" > .merge_message
+        if git merge --no-ff $current_branch -m "$merge_message"; then
+            rm .merge_message
+        fi
 
         # we skip removing the original branch if it's not a release
         if [ ! $current_branch_begins_with == 'release-' ]; then
@@ -83,6 +112,40 @@ case $command in
             # like nvie, we could delete the branch
             # git branch -d $current_branch
             true
+        fi
+        ;;
+
+    merge-branch)
+        other_branch=$1
+        merge_message="/\ merge from $other_branch."
+        echo "$merge_message" > .merge_message
+        if git merge --no-ff $other_branch -m "$merge_message"; then
+            rm .merge_message
+        fi
+        ;;
+
+    md|merge-develop)
+        if [ $current_branch == 'hotfix' ]; then
+            echo "cannot merge develop into hotfix!" >&2
+            echo "finish the hotfix or cherry-pick something from develop." >&2
+            echo "but must probably you're doing something wrong." >&2
+            exit 1
+        fi
+
+        if [ $current_branch == 'master' ]; then
+            echo "cannot merge develop into hotfix unless you're doing a release!" >&2
+            exit 1
+        fi
+
+        if [ $current_branch == 'develop' ]; then
+            echo "you're in develop, you twat!" >&2
+            exit 0
+        fi
+
+        merge_message="|/ merge from develop."
+        echo "$merge_message" > .merge_message
+        if git merge --no-ff develop -m "$merge_message"; then
+            rm .merge_message
         fi
         ;;
 
@@ -164,10 +227,27 @@ case $command in
         git merge --no-ff $current_branch -m "|\ merge from $current_branch."
         ;;
 
-    st|sw|switch|switch-to)
+    resolved)
+        git commit -a "$@"
+        ;;
+
+    revert|rollback)
+        git checkout --force $current_branch
+        ;;
+
+    st|status)
+        git status --short
+        ;;
+
+    sw|switch|switch-to)
         branch=$1
 
         git checkout $branch
+        ;;
+
+    tree)
+        git log --graph --pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset ' --abbrev-commit --date=relative --branches
+        echo
         ;;
 
     update)
@@ -195,7 +275,8 @@ case $command in
     # alice$ git log -p HEAD..FETCH_HEAD
 
     *)
-        echo "are you trying to talk to git? well, YOU talk to it! he ALWAYS kills the messenger..." >&2
-        exit 1
+        # echo "are you trying to talk to git? well, YOU talk to it! he ALWAYS kills the messenger..." >&2
+        # exit 1
+        git $command "$@"
         ;;
 esac
