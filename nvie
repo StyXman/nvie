@@ -1,4 +1,4 @@
-# /usr/bin/env bash
+#! /usr/bin/env bash
 
 # the source of the idea behing this is here:
 # http://www.nvie.com/posts/a-successful-git-branching-model/
@@ -232,7 +232,7 @@ case $command in
         ;;
 
     revert|rollback)
-        git checkout --force $current_branch
+        git checkout --force $current_branch -- "$@"
         ;;
 
     st|status)
